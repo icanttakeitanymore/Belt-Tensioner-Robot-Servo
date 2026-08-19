@@ -111,51 +111,95 @@ class ProtocolDecoder:
 
 # ── Proxy mode ─────────────────────────────────────────────────────
 
-def run_proxy(arduino_port: str, baud: int, log_dir: Path):
-    """Run the PTY proxy between SimHub and Arduino."""
+def run_proxy(arduino_port: str, baud: int, log_dir: Path,
+              com_port: str = "com3"):
+    """Run the serial proxy between SimHub and Arduino.
+
+    Uses socat to create a PTY pair: SimHub connects to one end (symlinked
+    as a Wine COM port), the proxy opens the other end via pyserial.
+    """
+    import subprocess
+    import shutil
+
+    # Find socat
+    if not shutil.which("socat"):
+        sys.exit("socat not found. Install: sudo dnf install socat")
+
     log_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     log_path = log_dir / f"belt_log_{ts}.csv"
+
+    # Paths for socat PTY links
+    simhub_link = f"/tmp/belt_proxy_simhub_{os.getpid()}"
+    proxy_link = f"/tmp/belt_proxy_arduino_{os.getpid()}"
+
+    # Wine dosdevices path
+    wine_prefix = Path(os.environ.get("WINEPREFIX",
+                                      os.path.expanduser("~/.wine")))
+    com_symlink = wine_prefix / "dosdevices" / com_port
+
+    # Save original symlink target so we can restore it on exit
+    original_target = None
+    if com_symlink.is_symlink():
+        original_target = os.readlink(com_symlink)
+
+    # Start socat: creates two PTYs bridged together
+    socat_cmd = [
+        "socat", "-d",
+        f"PTY,link={simhub_link},rawer,echo=0",
+        f"PTY,link={proxy_link},rawer,echo=0",
+    ]
+    socat_proc = subprocess.Popen(
+        socat_cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
+    # Wait for socat to create the PTY links
+    for _ in range(50):  # 5 seconds max
+        if os.path.exists(simhub_link) and os.path.exists(proxy_link):
+            break
+        time.sleep(0.1)
+    else:
+        socat_proc.kill()
+        stderr = socat_proc.stderr.read().decode() if socat_proc.stderr else ""
+        sys.exit(f"socat did not create PTY links. stderr: {stderr}")
 
     # Open Arduino
     try:
         arduino = serial.Serial(arduino_port, baud, timeout=0.01,
                                 rtscts=False, dsrdtr=False)
     except Exception as e:
+        socat_proc.kill()
         sys.exit(f"Cannot open Arduino on {arduino_port}: {e}")
 
-    # Create PTY pair
-    master_fd, slave_fd = os.openpty()
-    slave_name = os.ttyname(slave_fd)
-
-    # Disable PTY echo — without this, data written to master (Arduino→SimHub)
-    # gets echoed back to master and misread as SimHub→Arduino traffic.
-    import termios
+    # Open proxy side of the PTY pair (no DTR/RTS — PTY doesn't support them)
     try:
-        attrs = termios.tcgetattr(slave_fd)
-        attrs[3] &= ~termios.ECHO       # disable echo
-        attrs[3] &= ~termios.ICANON      # raw mode (no line buffering)
-        attrs[1] = 0                     # disable output processing
-        termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
-    except OSError:
-        pass  # non-fatal — echo may still be off by default on some systems
-    # Keep slave_fd open for the proxy's lifetime — on Linux, reading from
-    # a PTY master whose slave is fully closed returns EIO (errno 5).
+        pty_side = serial.Serial(proxy_link, baud, timeout=0.01,
+                                 rtscts=False, dsrdtr=False, exclusive=False)
+    except Exception as e:
+        socat_proc.kill()
+        arduino.close()
+        sys.exit(f"Cannot open proxy PTY {proxy_link}: {e}")
+
+    # Repoint Wine COM port to the simhub side
+    com_symlink.parent.mkdir(parents=True, exist_ok=True)
+    if com_symlink.exists() or com_symlink.is_symlink():
+        com_symlink.unlink()
+    com_symlink.symlink_to(simhub_link)
 
     print(f"\n{'='*60}")
     print(f"  Belt Tensioner Serial Proxy")
     print(f"{'='*60}")
-    print(f"  Arduino:  {arduino_port} @ {baud} baud")
-    print(f"  PTY slave: {slave_name}")
-    print(f"  Log file:  {log_path}")
+    print(f"  Arduino:    {arduino_port} @ {baud} baud")
+    print(f"  SimHub PTY: {simhub_link}")
+    print(f"  Proxy PTY:  {proxy_link}")
+    print(f"  Wine COM:   {com_symlink} → {simhub_link}")
+    if original_target:
+        print(f"  (was:       {original_target})")
+    print(f"  Log file:   {log_path}")
     print(f"{'='*60}")
-    print(f"\n  → Repoint Wine COM3 to the PTY slave:")
-    print(f"    ln -sf {slave_name} ~/.wine/dosdevices/com3")
-    print(f"\n  → Then re-enable SimHub Custom Serial Device.")
+    print(f"\n  → Re-enable SimHub Custom Serial Device now.")
     print(f"  → Press Ctrl-C to stop.\n")
 
     dec_sim2ard = ProtocolDecoder("SimHub→Arduino")
-    dec_ard2sim = ProtocolDecoder("Arduino→SimHub")
 
     log_file = open(log_path, "w", newline="")
     writer = csv.writer(log_file)
@@ -171,37 +215,27 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
     signal.signal(signal.SIGINT, shutdown)
     signal.signal(signal.SIGTERM, shutdown)
 
-    # Set master_fd non-blocking
-    import fcntl
-    flags = fcntl.fcntl(master_fd, fcntl.F_GETFL)
-    fcntl.fcntl(master_fd, fcntl.F_SETFL, flags | os.O_NONBLOCK)
-
     byte_count = 0
     try:
         while running[0]:
-            # Wait for data on either fd
-            rlist = [master_fd, arduino.fileno()]
+            rlist = [pty_side.fileno(), arduino.fileno()]
             try:
                 readable, _, _ = select.select(rlist, [], [], 0.1)
             except (OSError, ValueError):
                 break
 
             # SimHub → Arduino
-            if master_fd in readable:
-                try:
-                    data = os.read(master_fd, 256)
-                except BlockingIOError:
-                    data = b""
+            if pty_side.fileno() in readable:
+                data = pty_side.read(256)
                 if data:
                     arduino.write(data)
                     events = dec_sim2ard.feed(data)
                     batch_t = time.monotonic()
-                    # Spread timestamps across bytes in the batch so each
-                    # gets a distinct time (serial at 9600 baud = ~0.96ms/byte)
-                    byte_interval = 1.0 / (baud / 10.0)  # 10 bits per byte (8N1+start+stop)
+                    byte_interval = 1.0 / (baud / 10.0)
                     for i, (b, evt) in enumerate(zip(data, events)):
                         elapsed = batch_t - t0 + i * byte_interval
-                        ts_str = datetime.now().isoformat(timespec="milliseconds")
+                        ts_str = datetime.now().isoformat(
+                            timespec="milliseconds")
                         writer.writerow([
                             ts_str, f"{elapsed:.4f}", "S→A",
                             b, evt["type"],
@@ -212,39 +246,23 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
                             evt["desc"],
                         ])
                         byte_count += 1
-                        # Only print position + offset events (skip opcode noise)
-                        if evt["type"] in ("position", "left_offset", "right_offset"):
+                        if evt["type"] in ("position", "left_offset",
+                                           "right_offset"):
                             print(f"[{elapsed:7.3f}] S→A {evt['desc']}")
-
                     log_file.flush()
 
             # Arduino → SimHub (boot message, etc.)
             if arduino.fileno() in readable:
-                try:
-                    data = arduino.read(256)
-                except Exception:
-                    data = b""
+                data = arduino.read(256)
                 if data:
-                    try:
-                        os.write(master_fd, data)
-                        # Drain any echo from master immediately — even with
-                        # termios ECHO off, some PTY drivers still echo.
-                        select.select([master_fd], [], [], 0.01)
-                        try:
-                            while True:
-                                echo = os.read(master_fd, 256)
-                                if not echo:
-                                    break
-                        except (BlockingIOError, OSError):
-                            pass
-                    except OSError:
-                        pass
+                    pty_side.write(data)
                     now = time.monotonic()
                     elapsed = now - t0
                     text = data.decode("ascii", errors="replace").strip()
                     if text:
                         print(f"[{elapsed:7.3f}] A→S {repr(text)}")
-                        ts_str = datetime.now().isoformat(timespec="milliseconds")
+                        ts_str = datetime.now().isoformat(
+                            timespec="milliseconds")
                         writer.writerow([
                             ts_str, f"{elapsed:.4f}", "A→S",
                             "", "arduino_msg", "", "", "", "",
@@ -253,13 +271,31 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
                         log_file.flush()
     finally:
         log_file.close()
-        os.close(slave_fd)
-        os.close(master_fd)
+        pty_side.close()
         arduino.close()
+        socat_proc.kill()
+        socat_proc.wait()
+
+        # Restore original Wine COM symlink
+        if com_symlink.is_symlink():
+            com_symlink.unlink()
+        if original_target:
+            com_symlink.symlink_to(original_target)
+
+        # Clean up socat PTY links
+        for link in (simhub_link, proxy_link):
+            try:
+                os.unlink(link)
+            except OSError:
+                pass
+
         print(f"\n{'='*60}")
         print(f"  Proxy stopped. {byte_count} bytes logged.")
         print(f"  Log: {log_path}")
-        print(f"  Analyze: python3.12 scripts/serial_proxy.py --analyze {log_path}")
+        if original_target:
+            print(f"  Restored {com_symlink} → {original_target}")
+        print(f"  Analyze: python3.12 scripts/serial_proxy.py"
+              f" --analyze {log_path}")
         print(f"{'='*60}")
 
 
@@ -393,6 +429,8 @@ def main():
     parser.add_argument("--log-dir", type=Path,
                         default=Path("logs"),
                         help="Directory for log files")
+    parser.add_argument("--com", default="com3",
+                        help="Wine COM port to symlink (default: com3)")
     parser.add_argument("--analyze", type=Path, metavar="CSV",
                         help="Analyze a log file instead of running proxy")
     args = parser.parse_args()
@@ -400,7 +438,7 @@ def main():
     if args.analyze:
         analyze_log(args.analyze)
     else:
-        run_proxy(args.arduino, args.baud, args.log_dir)
+        run_proxy(args.arduino, args.baud, args.log_dir, args.com)
 
 
 if __name__ == "__main__":

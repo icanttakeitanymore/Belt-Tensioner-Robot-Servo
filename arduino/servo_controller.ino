@@ -54,10 +54,10 @@ void loop() {
           // Positional data payload (Values >= 2)
           if (received & 1) {
             // LSB is 1 -> Right Channel
-            right.write((received & 127) + radd);
+            right.write(constrain((received & 127) + radd, 0, 180));
           } else {
             // LSB is 0 -> Left Channel
-            left.write((received & 127) + ladd);
+            left.write(constrain((received & 127) + ladd, 0, 180));
           }
         }
         break;

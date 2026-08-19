@@ -7,7 +7,7 @@ from pathlib import Path
 
 # Highly optimized: Eliminates 6 array allocations and 5 string concats into 1 direct native call.
 OFFSET_MESSAGE = (
-    "var mt = $prop('Settings.max_test'), tm = $prop('Settings.tmax') & 126;\n"
+    "var mt = $prop('Settings.max_test'), tm = ($prop('Settings.tmax') || 60) & 126;\n"
     "return String.fromCharCode(0, $prop('Settings.LeftOffset'), 1, $prop('Settings.RightOffset'), mt ? tm : 2, mt ? (tm + 1) : 3);"
 )
 

@@ -1,92 +1,121 @@
 # Belt-Tensioner-Robot-Servo
-Sim Racing Belt Tensioner using robots hobby servos and SimHub
 
-Based on the original project:
+Sim Racing Belt Tensioner using robot hobby servos and SimHub.
 
-author=blekenbleu,
-title = SimHub Custom serial device for Blue Pill
-year =2021
-url = https://blekenbleu.github.io/Arduino/<br />
-Description: https://blekenbleu.github.io/Arduino/SimHubCustomSerial<br />
-Original Arduino Blue Pill scetch: https://github.com/blekenbleu/blekenbleu.github.io/tree/master/Arduino/Blue_ASCII_Servo<br />
-Original SimHub Profile: https://blekenbleu.github.io/Arduino/proxy_G.shsds.txt<br />
+Based on the original project by [blekenbleu](https://github.com/blekenbleu) —
+[SimHub Custom serial device for Blue Pill](https://blekenbleu.github.io/Arduino/SimHubCustomSerial).
 
-Youtube demo of my belt tensioner: https://www.youtube.com/watch?v=9a0rFGwfBp4<br />
-Roller STLs here: https://www.thingiverse.com/thing:5490048<br />
-Supercaps PSU and Arduino box here: https://www.thingiverse.com/thing:5490068<br />
+## What it does
 
-BOM:
+Two high-torque hobby servos pull your shoulder harnesses based on live telemetry
+from SimHub. Braking tightens both belts; cornering tightens the outside belt.
+A high-pass transient channel adds a sharp tug on gear shifts and clutch bites.
+
+YouTube demo: https://www.youtube.com/watch?v=9a0rFGwfBp4
+
+## Hardware
+
+### Bill of Materials
+
 - Arduino Nano
-- 2x Twin Arm servo, 180 degrees, 60KG, 8.4V; full metal brackets - DSServo RDS5160 SSG 60kg 8.4v High Voltage Torque Stainless Steel Gear Digital Servo For RC Model Robot Arm Arduino DIY Industry (from Aliexpress)
-- XL4005 5A 75W XL4015 DC-DC XL6009 Power Supply Module Boost Buck DC to DC Adjustable Step Up Step Down Converter Module
+- 2× DSServo RDS5160 SSG — 60 kg, 8.4 V, 180°, full metal brackets (AliExpress)
+- XL4005 / XL4015 / XL6009 DC-DC step-up/down converter module
+- 3D-printed rollers: https://www.thingiverse.com/thing:5490048
+- 3D-printed PSU + Arduino enclosure: https://www.thingiverse.com/thing:5490068
 
-Project layout:
-- `arduino/Blue_ASCII_Servo.ino` — simplified Arduino firmware without LED feedback
-- `simhub/Game Belt Message.txt` — custom SimHub message expression
-- `simhub/StuyoBeltTensionerProfile.shsds` — example SimHub profile
-- `scripts/generate_shsds.py` — generate `.shsds` from the message file
+### Optional (recommended)
 
-Optional:
-- 2022 New 6pcs 16V 16.6F Super Capacitor High Current 2.7V 100F Double Row Ultracapacitor
+- 6× 16 V / 16.6 F supercapacitors (3 in series = 8.1 V bank) for current smoothing
 - XT60 connectors
-- 0.28 Inch 2.5V-40V Mini Digital Voltmeter
-- Automotive fuse + socket (10A)
+- 0.28" 2.5–40 V mini digital voltmeter
+- Automotive blade fuse + socket, 10 A
 
+### Power
 
-Description:
+Servos are driven at 8.2 V — just under the advertised 8.4 V maximum. This gives
+fast, quiet response. Supercapacitors smooth current spikes on the DC-DC
+converter; charge time is under a minute (initial draw ~4 A for ~5 s, then
+rapid decay). Input is 12 V from a shared accessory PSU.
 
-Utilizes two Robot Hobby servos , 60KG each, driven by SimHub Custom profile. Modifications to origina blackenbleu code include:
+### Servo notes
 
-Blue_ASCII_Servo.ino (Arduino sketch, tested with Nano and Pro Micro):
-- Modified output signal to reference Digital Out pins on arduino Nano
+60 kg servos are recommended. 35 kg servos burn out quickly under sustained full
+load. The 180° servos are used over only ~50° of their range; beyond ~60° they
+hit full load (~4 A each) and become uncomfortable. They are mounted directly to
+3030 aluminium profile under the seat using the supplied metal brackets.
 
-SimHub Belt Tensioner.shsds
-- Modified to use general Acceleration values (AccelerationSway;GlobalAccelerationG), which are supported by more games. Original was based on GameRawData.Physics.AccG01 and GameRawData.Physics.AccG03.
-- Added "Reste" Function - based on SimHub value "IsGameRunning" - checks if game is running, otherwise leaves belts untensioned. Original profile in Dirt Rally 2.0 was laways leaving residue tension in belts after race, which was nulled at the beginnning of next race, keeping belts in menus always tensioned.
+### Mechanical setup
 
+Power the servos **without** USB connection to the PC and mechanically adjust
+them so that 0° corresponds to the most relaxed belt position you want.
 
-Servos:
+### Current draw
 
-My seatbelt tensioner is built on 60KG servos. Originally started with 35KG, which is more than enough stength, but they burned out very fast - they cannot support working on full load under such circumstances.
+- Full lock: ~4 A (measured 3.8–4.2 A) per servo
+- Normal driving tension: ~2–2.2 A per servo
 
-The 60kg serwos are 180 degrees, the range I am using them is only 50 degrees. More than 60 they obtail full load, which translates to 4A consumption per servo, also it reallyhurts my sholders at this stage, whcih is better to be avoided. I ordered the 180ddegree ones for ease of configuration in SimHub, but with original brackets rarely they will  used more than 90 degrees of rotation. Also ordered full metal brackets and ball bearing rollers - they are pretty strong and you need the structural integrity.
+## Software
 
+### Repository layout
 
-Power Supply:
+| File | Purpose |
+|------|---------|
+| `arduino/servo_controller.ino` | Arduino firmware — serial protocol + servo driver |
+| `simhub/message.js` | SimHub telemetry expression (the "message" that drives the servos) |
+| `scripts/generate_shsds.py` | Generate a `.shsds` profile from `message.js` |
+| `simhub/generated_profile.shsds` | Example generated profile |
 
-Servos are driven at 8.2Vm which is little less than their advertised maximum of 8.4V. This gives very fast response, also quiet operation.
-I have added Supercapacitors to smoothen the servo responese time, also load on the Power Supply DC-DC convertor. Supercapacitors requite ballance circuit, chepest option was to buy 6 in series and cut them in half. Every capacitor has 2.7V nominal so 3 in series are enought for driving the servos.
+### Protocol
 
-Supercapacitors charge for less than minute, initial current is 4A at about 5 seconds, then drops rapidly. The 5A module is still holding OK. I ampowering it with 12V from anothe Powersupply, used for mi Bass shakers + wind sim + aRGB lights.
+Serial link at 9600 baud. Each byte is one of:
 
+| Byte | Meaning |
+|------|---------|
+| `0` | Next byte = left servo calibration offset |
+| `1` | Next byte = right servo calibration offset |
+| `≥ 2` | Position command — LSB selects channel (0 = left, 1 = right), bits 1–6 = angle |
 
-Servo current draw:
+The Arduino clamps the final servo angle to 0–180° to prevent PWM-mode overflow
+when `position + offset` exceeds 180.
 
-Full lock - 4A (measured 3.8-42)<br>
-Normal lock (without hurting shoulders) - about 2-2.2A
+### SimHub setup
 
+1. Load the Arduino sketch onto a Nano (servos on pins 6 and 9).
+2. In SimHub, add a **Custom Serial Device**.
+3. Generate a profile from the message file:
 
-Mechanical configuration:
+   ```bash
+   python3 scripts/generate_shsds.py simhub/message.js --output simhub/generated_profile.shsds
+   ```
 
-Servos were mechanically adjusted after powering them up (without conection to PC) to reflect 0 degree angle at the most realxt position Iwant them in.
-Servos are mounted directly to 3030 Aluminum profile attached to the bottom of my seat using the supplied metal brackets. Extensive testing proved this is enough for structural integrity.
+4. Import `simhub/generated_profile.shsds` into SimHub.
+5. Select the correct COM port for your Arduino in the SimHub device settings.
 
+### SimHub settings (sliders)
 
-Software configuration:
+| Setting | Default | Range | Effect |
+|---------|---------|-------|--------|
+| Left untensioned | 0 | 0–70 | Calibration offset for left servo rest position |
+| Right untensioned | 0 | 0–70 | Calibration offset for right servo rest position |
+| decel gain | 50 | 0–100 | Scales braking-induced tension |
+| delta yaw gain | 8 | 0–80 | Scales lateral-G-induced tension |
+| smoothing | 2 | 0–4 | IIR low-pass time constant for sustained forces |
+| max tension | 60 | 20–127 | Hard cap on servo angle sent over serial |
+| Test untensioned positions | off | — | Hold servos at calibration offsets for setup |
+| test max tension | off | — | Hold servos at max tension for setup |
 
-Sketch loaded to Arduino Nano, connected as Custom Serial Device in SimHub.
-Initial servo position, max tension - set in SimHub Profile. 
+## Changes from the original blekenbleu project
 
-Update 09.12.2022:
+- Uses general `AccelerationSway` / `GlobalAccelerationG` properties instead of
+  game-specific `GameRawData.Physics.AccG01` / `AccG03` — wider game support.
+- **Reset function**: belts stay slack when no game is running (checked via
+  `DataCorePlugin.GameRunning`). The original Dirt Rally 2.0 profile left
+  residual tension in the belts between sessions.
+- High-pass transient channel for gear shifts / clutch bite ("kick").
+- Delta-guard: no serial output when values are unchanged, eliminating spam.
+- Servo angle clamped to 0–180° in firmware (prevents PWM-mode overflow).
+- `tmax` has a safe fallback so the protocol can never emit opcode bytes.
 
-Added latest SimHub profile featuring Game Check options. This was needed because WRC 10 has different implementation on Acclerations so tensioner was working backwards. Now it switches values automatically.
+## License
 
-Added Message Belt text file which features only the Game Acceleration Message code for ease of use.
-
-Generate a profile from the message text:
-
-```bash
-python3 scripts/generate_shsds.py simhub/"Game Belt Message.txt" --output simhub/generated_profile.shsds
-```
-
-This creates a valid `.shsds` profile using the custom message expression from `simhub/Game Belt Message.txt`.
+See [LICENSE](LICENSE).

@@ -32,7 +32,7 @@
     "Expression": "' !'"
   },
   "DtrEnable": false,
-  "RtsEnable": true,
+  "RtsEnable": false,
   "EditorExpanded": true,
   "Name": "Custom Serial device",
   "Description": "Belt tensioner",

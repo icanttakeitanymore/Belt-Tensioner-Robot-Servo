@@ -56,7 +56,7 @@ TEMPLATE = {
     "OnConnectMessage": {"Expression": "' !'"},
     "OnDisconnectMessage": {"Expression": "' !'"},
     "DtrEnable": False,
-    "RtsEnable": True,
+    "RtsEnable": False,
     "EditorExpanded": True,
     "Name": "Custom Serial device",
     "Description": "Belt tensioner",

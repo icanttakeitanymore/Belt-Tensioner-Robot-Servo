@@ -139,7 +139,8 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
         termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
     except OSError:
         pass  # non-fatal — echo may still be off by default on some systems
-    os.close(slave_fd)
+    # Keep slave_fd open for the proxy's lifetime — on Linux, reading from
+    # a PTY master whose slave is fully closed returns EIO (errno 5).
 
     print(f"\n{'='*60}")
     print(f"  Belt Tensioner Serial Proxy")
@@ -252,6 +253,7 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
                         log_file.flush()
     finally:
         log_file.close()
+        os.close(slave_fd)
         os.close(master_fd)
         arduino.close()
         print(f"\n{'='*60}")

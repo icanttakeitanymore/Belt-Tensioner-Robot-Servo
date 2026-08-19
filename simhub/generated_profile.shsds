@@ -1,6 +1,6 @@
 {
   "AutomaticReconnect": true,
-  "SerialPortName": "COM33",
+  "SerialPortName": "COM3",
   "StartupDelayMs": 2000,
   "IsConnecting": false,
   "IsEnabled": true,

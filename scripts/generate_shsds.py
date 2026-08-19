@@ -28,7 +28,7 @@ def _checkbox(name, label, default=False):
 
 TEMPLATE = {
     "AutomaticReconnect": True,
-    "SerialPortName": "COM8",
+    "SerialPortName": "COM33",
     "StartupDelayMs": 2000,
     "IsConnecting": False,
     "IsEnabled": True,

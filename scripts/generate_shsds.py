@@ -5,16 +5,17 @@ import argparse
 import json
 from pathlib import Path
 
-# Delta-guarded: only sends offset bytes when calibration values actually change,
-# instead of re-sending 6 bytes every frame. ~75% serial bandwidth savings.
+# Protocol v2: 253=sync, 254=left offset opcode, 255=right offset opcode
+# Delta-guarded: only sends when calibration values change.
+# Frame: [254, leftOffset, 255, rightOffset, 253, testLeft, testRight]
 OFFSET_MESSAGE = (
-    "var mt = $prop('Settings.max_test'), tm = ($prop('Settings.tmax') || 60) & 126;\n"
+    "var mt = $prop('Settings.max_test'), tm = Math.min(($prop('Settings.tmax') || 60), 252);\n"
     "var lo = $prop('Settings.LeftOffset'), ro = $prop('Settings.RightOffset');\n"
-    "var p1 = mt ? tm : 2, p2 = mt ? (tm + 1) : 3;\n"
-    "var key = lo + ',' + ro + ',' + p1 + ',' + p2;\n"
+    "var tl = mt ? tm : 0, tr = mt ? tm : 0;\n"
+    "var key = lo + ',' + ro + ',' + tl + ',' + tr;\n"
     "if (root['off'] === key) return '';\n"
     "root['off'] = key;\n"
-    "return String.fromCharCode(0, lo, 1, ro, p1, p2);"
+    "return String.fromCharCode(254, lo, 255, ro, 253, tl, tr);"
 )
 
 def _slider(name, label, default, minimum=0, maximum=100):
@@ -71,7 +72,7 @@ TEMPLATE = {
             _slider("decel_gain", "decel gain", 50, 0, 100),
             _slider("yaw_gain", "delta yaw gain", 8, 0, 80),
             _slider("smooth", "smoothing", 2, 0, 4),
-            _slider("tmax", "max tension", 60, 20, 127),
+            _slider("tmax", "max tension", 60, 10, 252),
             _checkbox("max_test", "test max tension"),
             # --- Feature toggles ---
             _checkbox("enable_handbrake", "Handbrake slackens belts", True),

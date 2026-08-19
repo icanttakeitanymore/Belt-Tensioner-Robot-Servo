@@ -52,10 +52,16 @@ var kickDecay = 0.6; // 60% remains each frame → ~3 frames at 60Hz = ~50ms tai
 var kick = (root["kick"] || 0) * kickDecay;
 
 // 4a. Gear-shift kick (direct gear change detection)
+// On gear change: brief belt dip (clutch release) then grab (clutch bite).
+// The dip creates contrast so the grab is felt even during heavy braking
+// where sustained tension already saturates tmax.
+var gearDip = 0;
 if ($prop('Settings.enable_gear_kick') && active) {
     var lastGear = root["lastGear"] || gear;
     if (gear !== lastGear && gear > 0) {
         kick += $prop('Settings.gear_kick_gain') / 100 * tmaxRaw;
+        // Dip: reduce sustained tension for ~2 frames so grab is felt
+        gearDip = $prop('Settings.gear_kick_gain') / 100 * tmaxRaw * 0.7;
     }
     root["lastGear"] = gear;
 }
@@ -106,8 +112,9 @@ if ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {
 }
 
 // 5. Bypass injection: add transient kick to filtered values
-var finalL = root["sl"] + kick;
-var finalR = root["sr"] + kick;
+// Gear dip temporarily reduces sustained tension (clutch release feel)
+var finalL = Math.max(0, root["sl"] - gearDip) + kick;
+var finalR = Math.max(0, root["sr"] - gearDip) + kick;
 
 // 5b. Handbrake → slacken belts
 if ($prop('Settings.enable_handbrake') && hb) {

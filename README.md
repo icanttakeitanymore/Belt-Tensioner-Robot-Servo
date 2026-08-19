@@ -64,6 +64,7 @@ them so that 0° corresponds to the most relaxed belt position you want.
 | `arduino/servo_controller.ino` | Arduino firmware — serial protocol + servo driver |
 | `simhub/message.js` | SimHub telemetry expression (the "message" that drives the servos) |
 | `scripts/generate_shsds.py` | Generate a `.shsds` profile from `message.js` |
+| `scripts/serial_proxy.py` | Serial proxy — sniffs & logs SimHub↔Arduino traffic for analysis |
 | `simhub/generated_profile.shsds` | Example generated profile |
 
 ### Protocol
@@ -91,6 +92,36 @@ when `position + offset` exceeds 180.
 
 4. Import `simhub/generated_profile.shsds` into SimHub.
 5. Select the correct COM port for your Arduino in the SimHub device settings.
+
+### Serial proxy (traffic logger)
+
+To log real servo positions during a drive session and analyze them afterwards:
+
+1. **Disable** the Custom Serial Device in SimHub (uncheck "Enabled").
+2. Run the proxy — it creates a PTY and connects to the Arduino:
+
+   ```bash
+   python3.12 scripts/serial_proxy.py --arduino /dev/ttyUSB1
+   ```
+
+3. Repoint Wine COM3 to the PTY slave path printed by the proxy:
+
+   ```bash
+   ln -sf /dev/pts/3 ~/.wine/dosdevices/com3
+   ```
+
+4. **Re-enable** the SimHub Custom Serial Device.
+5. Drive! The proxy logs every byte with timestamp + protocol decode to
+   `logs/belt_log_<timestamp>.csv`.
+6. Press Ctrl-C to stop. Then analyze:
+
+   ```bash
+   python3.12 scripts/serial_proxy.py --analyze logs/belt_log_*.csv
+   ```
+
+The analysis prints per-channel min/max/mean angles, a distribution histogram,
+offset calibration events, and transient detection (rapid angle jumps that
+indicate kick events).
 
 ### SimHub settings
 

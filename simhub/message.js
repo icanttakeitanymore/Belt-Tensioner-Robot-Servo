@@ -11,12 +11,12 @@ var roll = $prop('Roll') || 0;
 var pitLim = $prop('SpeedLimiterActive') || false;
 
 // 1. Extract raw sustained forces (Noise Gated)
-var lat = active ? $prop('AccelerationSway') * $prop('Settings.yaw_gain') : 0;
-var dec = active ? Math.max(0, -gLong * $prop('Settings.decel_gain')) : 0;
+var lat = active ? $prop('AccelerationSway') * ($prop('Settings.yaw_gain') || 0) : 0;
+var dec = active ? Math.max(0, -gLong * ($prop('Settings.decel_gain') || 0)) : 0;
 
 // 1b. Optional: brake-pedal decelerator (uses raw brake pedal 0-1 instead of gLong)
 if ($prop('Settings.enable_brake_pedal')) {
-    var bp = active ? brake * $prop('Settings.brake_pedal_gain') : 0;
+    var bp = active ? brake * ($prop('Settings.brake_pedal_gain') || 0) : 0;
     dec = Math.max(dec, bp);
 }
 
@@ -25,8 +25,8 @@ if ($prop('Settings.enable_brake_pedal')) {
 // They add directional tension: pitch (brake dives nose) → both belts,
 // roll (cornering leans) → outside belt only.
 if ($prop('Settings.enable_pitch_roll')) {
-    var pAdd = active ? Math.abs(pitch) * $prop('Settings.pitch_gain') : 0;
-    var rAdd = active ? roll * $prop('Settings.roll_gain') : 0;
+    var pAdd = active ? Math.abs(pitch) * ($prop('Settings.pitch_gain') || 0) : 0;
+    var rAdd = active ? roll * ($prop('Settings.roll_gain') || 0) : 0;
     // pitch adds to deceleration channel (both belts via weight transfer)
     dec += pAdd;
     // roll adds to lateral channel (directional, sign preserved)
@@ -62,7 +62,7 @@ var gearKickEnabled = $prop('Settings.enable_gear_kick');
 // Always update lastGear to prevent false trigger when toggled on
 var lastGear = root["lastGear"] || gear;
 if (gearKickEnabled && active && gear !== lastGear && gear > 0) {
-    var gearKickAmt = $prop('Settings.gear_kick_gain') / 100 * tmaxRaw;
+    var gearKickAmt = ($prop('Settings.gear_kick_gain') || 0) / 100 * tmaxRaw;
     kick += gearKickAmt;
     // Dip: reduce sustained tension so grab is felt (clutch release feel)
     gearDip = gearKickAmt * 0.7;
@@ -94,7 +94,7 @@ if ($prop('Settings.enable_bump') && active) {
         // First frame: initialize, don't trigger
         root["lastBump"] = bump;
     } else if (bump > lastBump * 1.5 && bump > 0.5) {
-        kick += (bump - lastBump) * $prop('Settings.bump_gain') / 100 * tmaxRaw;
+        kick += (bump - lastBump) * ($prop('Settings.bump_gain') || 0) / 100 * tmaxRaw;
     }
     root["lastBump"] = bump;
 }
@@ -108,7 +108,7 @@ if ($prop('Settings.enable_wheelslip') && active) {
     var slipRR = $prop('RearRightWheelSlip') || 0;
     var maxSlip = Math.max(Math.abs(slipFL), Math.abs(slipFR), Math.abs(slipRL), Math.abs(slipRR));
     if (maxSlip > 0.1) {
-        var slipKick = maxSlip * $prop('Settings.wheelslip_gain') / 100 * tmaxRaw;
+        var slipKick = maxSlip * ($prop('Settings.wheelslip_gain') || 0) / 100 * tmaxRaw;
         // Cap at 40% of tmax per frame — sustained slip won't accumulate indefinitely
         kick += Math.min(slipKick, tmaxRaw * 0.4);
     }

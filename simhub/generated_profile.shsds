@@ -1,7 +1,7 @@
 {
   "AutomaticReconnect": true,
   "SerialPortName": "COM8",
-  "StartupDelayMs": 0,
+  "StartupDelayMs": 2000,
   "IsConnecting": false,
   "IsEnabled": true,
   "LogIncomingData": false,
@@ -11,7 +11,7 @@
     {
       "Message": {
         "Interpreter": 1,
-        "Expression": "var mt = $prop('Settings.max_test'), tm = ($prop('Settings.tmax') || 60) & 126;\nreturn String.fromCharCode(0, $prop('Settings.LeftOffset'), 1, $prop('Settings.RightOffset'), mt ? tm : 2, mt ? (tm + 1) : 3);"
+        "Expression": "var mt = $prop('Settings.max_test'), tm = ($prop('Settings.tmax') || 60) & 126;\nvar lo = $prop('Settings.LeftOffset'), ro = $prop('Settings.RightOffset');\nvar p1 = mt ? tm : 2, p2 = mt ? (tm + 1) : 3;\nvar key = lo + ',' + ro + ',' + p1 + ',' + p2;\nif (root['off'] === key) return '';\nroot['off'] = key;\nreturn String.fromCharCode(0, lo, 1, ro, p1, p2);"
       },
       "IsEnabled": true,
       "MaximumFrequency": 0
@@ -31,7 +31,7 @@
   "OnDisconnectMessage": {
     "Expression": "' !'"
   },
-  "DtrEnable": true,
+  "DtrEnable": false,
   "RtsEnable": true,
   "EditorExpanded": true,
   "Name": "Custom Serial device",

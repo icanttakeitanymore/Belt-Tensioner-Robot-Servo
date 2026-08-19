@@ -5,16 +5,22 @@ import argparse
 import json
 from pathlib import Path
 
-# Highly optimized: Eliminates 6 array allocations and 5 string concats into 1 direct native call.
+# Delta-guarded: only sends offset bytes when calibration values actually change,
+# instead of re-sending 6 bytes every frame. ~75% serial bandwidth savings.
 OFFSET_MESSAGE = (
     "var mt = $prop('Settings.max_test'), tm = ($prop('Settings.tmax') || 60) & 126;\n"
-    "return String.fromCharCode(0, $prop('Settings.LeftOffset'), 1, $prop('Settings.RightOffset'), mt ? tm : 2, mt ? (tm + 1) : 3);"
+    "var lo = $prop('Settings.LeftOffset'), ro = $prop('Settings.RightOffset');\n"
+    "var p1 = mt ? tm : 2, p2 = mt ? (tm + 1) : 3;\n"
+    "var key = lo + ',' + ro + ',' + p1 + ',' + p2;\n"
+    "if (root['off'] === key) return '';\n"
+    "root['off'] = key;\n"
+    "return String.fromCharCode(0, lo, 1, ro, p1, p2);"
 )
 
 TEMPLATE = {
     "AutomaticReconnect": True,
     "SerialPortName": "COM8",
-    "StartupDelayMs": 0,
+    "StartupDelayMs": 2000,
     "IsConnecting": False,
     "IsEnabled": True,
     "LogIncomingData": False,
@@ -40,7 +46,7 @@ TEMPLATE = {
     ],
     "OnConnectMessage": {"Expression": "' !'"},
     "OnDisconnectMessage": {"Expression": "' !'"},
-    "DtrEnable": True,
+    "DtrEnable": False,
     "RtsEnable": True,
     "EditorExpanded": True,
     "Name": "Custom Serial device",

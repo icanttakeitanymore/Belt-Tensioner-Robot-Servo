@@ -131,8 +131,9 @@ def run_sniffer(device: str, log_dir: Path, bus: int = 1):
     usbmon_path = f"/sys/kernel/debug/usb/usbmon/{bus}t"
 
     # Check usbmon is available (via sudo, since debugfs is root-only)
+    # usbmon is a streaming file — cat never exits, so use head -1
     check = subprocess.run(
-        ["sudo", "-n", "cat", usbmon_path],
+        ["sudo", "-n", "head", "-1", usbmon_path],
         capture_output=True, text=True, timeout=5)
     if check.returncode != 0:
         sys.exit(f"Cannot read {usbmon_path}: {check.stderr.strip()}\n"

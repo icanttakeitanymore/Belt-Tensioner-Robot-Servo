@@ -1,7 +1,7 @@
 #include <Servo.h>
 
 Servo left, right;
-byte ladd = 70, radd = 70;
+byte ladd = 0, radd = 0;
 
 // Protocol state machine tracking
 enum ParserState {

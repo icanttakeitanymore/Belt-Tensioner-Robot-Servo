@@ -34,15 +34,15 @@ if ($prop('Settings.enable_pitch_roll')) {
 }
 
 // 2. Vector distribution for weight transfer
-var r = Math.sqrt(dec * dec + lat * lat), l = Math.max(0, (dec * 2) - r);
-if (lat < 0) { var tmp = r; r = l; l = tmp; }
+var vR = Math.sqrt(dec * dec + lat * lat), vL = Math.max(0, (dec * 2) - vR);
+if (lat < 0) { var tmp = vR; vR = vL; vL = tmp; }
 
 // 3. Low-pass IIR filter for smooth sustained sensations
-if (root["sl"] == null || root["sr"] == null) { root["sr"] = r; root["sl"] = l; }
+if (root["sl"] == null || root["sr"] == null) { root["sr"] = vR; root["sl"] = vL; }
 var tc = Math.max(1.0, 1.0 + ($prop('Settings.smooth') || 0));
 
-var diffR = r - root["sr"]; root["sr"] += Math.abs(diffR) < 0.05 ? diffR : (diffR / tc);
-var diffL = l - root["sl"]; root["sl"] += Math.abs(diffL) < 0.05 ? diffL : (diffL / tc);
+var diffR = vR - root["sr"]; root["sr"] += Math.abs(diffR) < 0.05 ? diffR : (diffR / tc);
+var diffL = vL - root["sl"]; root["sl"] += Math.abs(diffL) < 0.05 ? diffL : (diffL / tc);
 
 // 4. Transient kick engine with exponential decay
 // Kick persists across frames: each frame new kick is added, then decayed.
@@ -55,41 +55,52 @@ var kick = (root["kick"] || 0) * kickDecay;
 // On gear change: brief belt dip (clutch release) then grab (clutch bite).
 // The dip creates contrast so the grab is felt even during heavy braking
 // where sustained tension already saturates tmax.
-var gearDip = 0;
-if ($prop('Settings.enable_gear_kick') && active) {
-    var lastGear = root["lastGear"] || gear;
-    if (gear !== lastGear && gear > 0) {
-        kick += $prop('Settings.gear_kick_gain') / 100 * tmaxRaw;
-        // Dip: reduce sustained tension for ~2 frames so grab is felt
-        gearDip = $prop('Settings.gear_kick_gain') / 100 * tmaxRaw * 0.7;
-    }
-    root["lastGear"] = gear;
+// gearDip persists with fast decay so servo has time to physically slacken.
+var gearDipDecay = 0.4; // 40% remains → ~2 frames at 60Hz = ~33ms dip
+var gearDip = (root["gearDip"] || 0) * gearDipDecay;
+var gearKickEnabled = $prop('Settings.enable_gear_kick');
+// Always update lastGear to prevent false trigger when toggled on
+var lastGear = root["lastGear"] || gear;
+if (gearKickEnabled && active && gear !== lastGear && gear > 0) {
+    var gearKickAmt = $prop('Settings.gear_kick_gain') / 100 * tmaxRaw;
+    kick += gearKickAmt;
+    // Dip: reduce sustained tension so grab is felt (clutch release feel)
+    gearDip = gearKickAmt * 0.7;
 }
+root["lastGear"] = gear;
+root["gearDip"] = gearDip;
 
 // 4b. gLong-derivative kick (acceleration surge, e.g. clutch bite)
-// Can coexist with gear kick — both are valid transients
-var acc = active ? Math.max(0, gLong) : 0;
-var lastAcc = root["lastAcc"] || 0;
-var wasActive = root["wasActive"] || false;
-if (active && wasActive && acc > lastAcc) {
-    kick += (acc - lastAcc) * 30;
+// Tied to enable_gear_kick toggle — both are gear/transient related
+if (gearKickEnabled && active) {
+    var acc = Math.max(0, gLong);
+    var lastAcc = root["lastAcc"] || 0;
+    var wasActive = root["wasActive"] || false;
+    if (wasActive && acc > lastAcc) {
+        kick += (acc - lastAcc) * 30;
+    }
+    root["lastAcc"] = acc;
+    root["wasActive"] = true;
+} else {
+    root["lastAcc"] = 0;
+    root["wasActive"] = false;
 }
-root["lastAcc"] = acc;
-root["wasActive"] = active;
 
 // 4c. Optional: suspension bump kick (rising-edge detection)
 if ($prop('Settings.enable_bump') && active) {
     var bump = $prop('SuspensionLandingImpactVelocityMs') || 0;
-    var lastBump = root["lastBump"] || 0;
-    // Only trigger on rising edge: bump must exceed lastBump AND a threshold
-    // This prevents re-triggering while bump value oscillates
-    if (bump > lastBump * 1.5 && bump > 0.5) {
+    var lastBump = root["lastBump"];
+    if (lastBump == null) {
+        // First frame: initialize, don't trigger
+        root["lastBump"] = bump;
+    } else if (bump > lastBump * 1.5 && bump > 0.5) {
         kick += (bump - lastBump) * $prop('Settings.bump_gain') / 100 * tmaxRaw;
     }
     root["lastBump"] = bump;
 }
 
 // 4d. Optional: wheel-slip feedback (brake lockup or wheelspin)
+// Capped per-frame to prevent runaway accumulation through kick decay
 if ($prop('Settings.enable_wheelslip') && active) {
     var slipFL = $prop('FrontLeftWheelSlip') || 0;
     var slipFR = $prop('FrontRightWheelSlip') || 0;
@@ -97,9 +108,15 @@ if ($prop('Settings.enable_wheelslip') && active) {
     var slipRR = $prop('RearRightWheelSlip') || 0;
     var maxSlip = Math.max(Math.abs(slipFL), Math.abs(slipFR), Math.abs(slipRL), Math.abs(slipRR));
     if (maxSlip > 0.1) {
-        kick += maxSlip * $prop('Settings.wheelslip_gain') / 100 * tmaxRaw;
+        var slipKick = maxSlip * $prop('Settings.wheelslip_gain') / 100 * tmaxRaw;
+        // Cap at 40% of tmax per frame — sustained slip won't accumulate indefinitely
+        kick += Math.min(slipKick, tmaxRaw * 0.4);
     }
 }
+
+// Cap total kick at 1.5x tmax — transients can exceed sustained ceiling
+// but won't run away with multiple simultaneous kick sources
+kick = Math.min(kick, tmaxRaw * 1.5);
 
 // Store decayed kick for next frame
 root["kick"] = kick;
@@ -107,7 +124,7 @@ root["kick"] = kick;
 // Reset persistent cache in UI calibration test modes
 if ($prop('Settings.max_test') || $prop('Settings.TestOffsets')) {
     root["sl"] = root["sr"] = root["lastL"] = root["lastR"] = root["lastAcc"] = root["wasActive"] = null;
-    root["lastGear"] = root["lastBump"] = root["kick"] = root["off"] = null;
+    root["lastGear"] = root["lastBump"] = root["kick"] = root["off"] = root["gearDip"] = null;
     return "";
 }
 
@@ -128,11 +145,11 @@ if ($prop('Settings.enable_pit_limiter') && pitLim) {
 
 // 6. Boundaries mapping & dynamic bit-packing (Left even, Right odd)
 var tmax = tmaxRaw & 126;
-l = Math.min(tmax, Math.max(2, finalL)) & 126;
-r = Math.min(tmax, Math.max(3, finalR)) | 1;
+var outL = Math.min(tmax, Math.max(2, finalL)) & 126;
+var outR = Math.min(tmax, Math.max(3, finalR)) | 1;
 
 // 7. Delta transmission guard to eliminate silent serial spam
-if (l === root["lastL"] && r === root["lastR"]) return "";
-root["lastL"] = l; root["lastR"] = r;
+if (outL === root["lastL"] && outR === root["lastR"]) return "";
+root["lastL"] = outL; root["lastR"] = outR;
 
-return String.fromCharCode(l, r);
+return String.fromCharCode(outL, outR);

@@ -126,6 +126,23 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
 
     # Create PTY pair
     master_fd, slave_name = os.openpty()
+
+    # Disable PTY echo — without this, data written to master (Arduino→SimHub)
+    # gets echoed back to master and misread as SimHub→Arduino traffic.
+    import termios
+    try:
+        slave_fd = os.open(slave_name, os.O_RDWR | os.O_NOCTTY)
+        try:
+            attrs = termios.tcgetattr(slave_fd)
+            attrs[3] &= ~termios.ECHO       # disable echo
+            attrs[3] &= ~termios.ICANON      # raw mode (no line buffering)
+            attrs[1] = 0                     # disable output processing
+            termios.tcsetattr(slave_fd, termios.TCSANOW, attrs)
+        finally:
+            os.close(slave_fd)
+    except OSError:
+        pass  # non-fatal — echo may still be off by default on some systems
+
     print(f"\n{'='*60}")
     print(f"  Belt Tensioner Serial Proxy")
     print(f"{'='*60}")
@@ -211,6 +228,16 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
                 if data:
                     try:
                         os.write(master_fd, data)
+                        # Drain any echo from master immediately — even with
+                        # termios ECHO off, some PTY drivers still echo.
+                        select.select([master_fd], [], [], 0.01)
+                        try:
+                            while True:
+                                echo = os.read(master_fd, 256)
+                                if not echo:
+                                    break
+                        except (BlockingIOError, OSError):
+                            pass
                     except OSError:
                         pass
                     now = time.monotonic()

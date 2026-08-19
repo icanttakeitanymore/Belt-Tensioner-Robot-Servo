@@ -179,9 +179,12 @@ def run_proxy(arduino_port: str, baud: int, log_dir: Path):
                 if data:
                     arduino.write(data)
                     events = dec_sim2ard.feed(data)
-                    now = time.monotonic()
-                    for b, evt in zip(data, events):
-                        elapsed = now - t0
+                    batch_t = time.monotonic()
+                    # Spread timestamps across bytes in the batch so each
+                    # gets a distinct time (serial at 9600 baud = ~0.96ms/byte)
+                    byte_interval = 1.0 / (baud / 10.0)  # 10 bits per byte (8N1+start+stop)
+                    for i, (b, evt) in enumerate(zip(data, events)):
+                        elapsed = batch_t - t0 + i * byte_interval
                         ts_str = datetime.now().isoformat(timespec="milliseconds")
                         writer.writerow([
                             ts_str, f"{elapsed:.4f}", "S→A",
@@ -288,7 +291,7 @@ def analyze_log(log_path: Path):
     # Time range
     t_min = positions[0]["t"]
     t_max = positions[-1]["t"]
-    duration = t_max - t_min
+    duration = max(t_max - t_min, 0.001)  # clamp to avoid div-by-zero
     print(f"  Duration: {duration:.1f}s ({t_min:.2f} – {t_max:.2f})")
     print(f"  Position commands: {len(positions)} ({len(positions)/duration:.1f}/s avg)")
     print(f"  Offset commands: {len(offsets)}")

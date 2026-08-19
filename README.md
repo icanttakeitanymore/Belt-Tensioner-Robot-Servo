@@ -20,6 +20,12 @@ BOM:
 - 2x Twin Arm servo, 180 degrees, 60KG, 8.4V; full metal brackets - DSServo RDS5160 SSG 60kg 8.4v High Voltage Torque Stainless Steel Gear Digital Servo For RC Model Robot Arm Arduino DIY Industry (from Aliexpress)
 - XL4005 5A 75W XL4015 DC-DC XL6009 Power Supply Module Boost Buck DC to DC Adjustable Step Up Step Down Converter Module
 
+Project layout:
+- `arduino/Blue_ASCII_Servo.ino` — simplified Arduino firmware without LED feedback
+- `simhub/Game Belt Message.txt` — custom SimHub message expression
+- `simhub/StuyoBeltTensionerProfile.shsds` — example SimHub profile
+- `scripts/generate_shsds.py` — generate `.shsds` from the message file
+
 Optional:
 - 2022 New 6pcs 16V 16.6F Super Capacitor High Current 2.7V 100F Double Row Ultracapacitor
 - XT60 connectors
@@ -76,3 +82,11 @@ Update 09.12.2022:
 Added latest SimHub profile featuring Game Check options. This was needed because WRC 10 has different implementation on Acclerations so tensioner was working backwards. Now it switches values automatically.
 
 Added Message Belt text file which features only the Game Acceleration Message code for ease of use.
+
+Generate a profile from the message text:
+
+```bash
+python3 scripts/generate_shsds.py simhub/"Game Belt Message.txt" --output simhub/generated_profile.shsds
+```
+
+This creates a valid `.shsds` profile using the custom message expression from `simhub/Game Belt Message.txt`.

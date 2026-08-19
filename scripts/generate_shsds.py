@@ -17,6 +17,15 @@ OFFSET_MESSAGE = (
     "return String.fromCharCode(0, lo, 1, ro, p1, p2);"
 )
 
+def _slider(name, label, default, minimum=0, maximum=100):
+    return {"Maximum": maximum, "Minimum": minimum, "PropertyName": name,
+            "CurrentValue": default, "TypeName": "SliderEntry",
+            "IsEnabled": True, "IsVisible": True, "Label": label}
+
+def _checkbox(name, label, default=False):
+    return {"PropertyName": name, "CurrentValue": default, "TypeName": "BoolEntry",
+            "IsEnabled": True, "IsVisible": True, "Label": label}
+
 TEMPLATE = {
     "AutomaticReconnect": True,
     "SerialPortName": "COM8",
@@ -54,14 +63,31 @@ TEMPLATE = {
     "IsFreezed": False,
     "SettingsBuilder": {
         "Settings": [
-            {"Maximum": 70, "Minimum": 0, "PropertyName": "LeftOffset", "CurrentValue": 0, "TypeName": "SliderEntry", "IsEnabled": True, "IsVisible": True, "Label": "Left untensioned"},
-            {"Maximum": 70, "Minimum": 0, "PropertyName": "RightOffset", "CurrentValue": 0, "TypeName": "SliderEntry", "IsEnabled": True, "IsVisible": True, "Label": "Right untensioned"},
-            {"PropertyName": "TestOffsets", "CurrentValue": False, "TypeName": "BoolEntry", "IsEnabled": True, "IsVisible": True, "Label": "Test untensioned positions"},
-            {"Maximum": 100, "Minimum": 0, "PropertyName": "decel_gain", "CurrentValue": 50, "TypeName": "SliderEntry", "IsEnabled": True, "IsVisible": True, "Label": "decel gain"},
-            {"Maximum": 80, "Minimum": 0, "PropertyName": "yaw_gain", "CurrentValue": 8, "TypeName": "SliderEntry", "IsEnabled": True, "IsVisible": True, "Label": "delta yaw gain"},
-            {"Maximum": 4, "Minimum": 0, "PropertyName": "smooth", "CurrentValue": 2, "TypeName": "SliderEntry", "IsEnabled": True, "IsVisible": True, "Label": "smoothing"},
-            {"Maximum": 127, "Minimum": 20, "PropertyName": "tmax", "CurrentValue": 60, "TypeName": "SliderEntry", "IsEnabled": True, "IsVisible": True, "Label": "max tension"},
-            {"PropertyName": "max_test", "CurrentValue": False, "TypeName": "BoolEntry", "IsEnabled": True, "IsVisible": True, "Label": "test max tension"},
+            # --- Calibration ---
+            _slider("LeftOffset", "Left untensioned", 0, 0, 70),
+            _slider("RightOffset", "Right untensioned", 0, 0, 70),
+            _checkbox("TestOffsets", "Test untensioned positions"),
+            # --- Core gains ---
+            _slider("decel_gain", "decel gain", 50, 0, 100),
+            _slider("yaw_gain", "delta yaw gain", 8, 0, 80),
+            _slider("smooth", "smoothing", 2, 0, 4),
+            _slider("tmax", "max tension", 60, 20, 127),
+            _checkbox("max_test", "test max tension"),
+            # --- Feature toggles ---
+            _checkbox("enable_handbrake", "Handbrake slackens belts", True),
+            _checkbox("enable_gear_kick", "Gear-shift kick", True),
+            _checkbox("enable_brake_pedal", "Brake-pedal decelerator"),
+            _checkbox("enable_wheelslip", "Wheel-slip feedback"),
+            _checkbox("enable_bump", "Suspension bump kick", True),
+            _checkbox("enable_pit_limiter", "Pit-limiter slackens belts", True),
+            _checkbox("enable_pitch_roll", "Pitch/Roll weight transfer"),
+            # --- Feature gains ---
+            _slider("gear_kick_gain", "gear-shift kick gain", 30, 0, 100),
+            _slider("brake_pedal_gain", "brake-pedal gain", 40, 0, 100),
+            _slider("wheelslip_gain", "wheel-slip gain", 20, 0, 100),
+            _slider("bump_gain", "bump kick gain", 25, 0, 100),
+            _slider("pitch_gain", "pitch weight transfer gain", 10, 0, 50),
+            _slider("roll_gain", "roll weight transfer gain", 10, 0, 50),
         ],
         "IsEditMode": False,
     },
@@ -79,7 +105,7 @@ def main():
         raise SystemExit(f"Message file not found: {args.message_file}")
 
     expression = args.message_file.read_text(encoding="utf-8").rstrip()
-    
+
     # Deep copy profile structures cleanly
     profile = dict(TEMPLATE)
     profile["UpdateMessages"] = [dict(msg) for msg in TEMPLATE["UpdateMessages"]]

@@ -9,7 +9,8 @@ Based on the original project by [blekenbleu](https://github.com/blekenbleu) —
 
 Two high-torque hobby servos pull your shoulder harnesses based on live telemetry
 from SimHub. Braking tightens both belts; cornering tightens the outside belt.
-A high-pass transient channel adds a sharp tug on gear shifts and clutch bites.
+Gear shifts, suspension bumps, and wheel lockup produce sharp transient tugs.
+Handbrake and pit-limiter automatically slacken the belts.
 
 YouTube demo: https://www.youtube.com/watch?v=9a0rFGwfBp4
 
@@ -91,18 +92,65 @@ when `position + offset` exceeds 180.
 4. Import `simhub/generated_profile.shsds` into SimHub.
 5. Select the correct COM port for your Arduino in the SimHub device settings.
 
-### SimHub settings (sliders)
+### SimHub settings
+
+All settings appear as sliders and checkboxes in the SimHub Custom Serial Device settings panel.
+
+#### Calibration & core gains
 
 | Setting | Default | Range | Effect |
 |---------|---------|-------|--------|
 | Left untensioned | 0 | 0–70 | Calibration offset for left servo rest position |
 | Right untensioned | 0 | 0–70 | Calibration offset for right servo rest position |
-| decel gain | 50 | 0–100 | Scales braking-induced tension |
-| delta yaw gain | 8 | 0–80 | Scales lateral-G-induced tension |
+| decel gain | 50 | 0–100 | Scales braking-induced tension (from GlobalAccelerationG) |
+| delta yaw gain | 8 | 0–80 | Scales lateral-G-induced tension (from AccelerationSway) |
 | smoothing | 2 | 0–4 | IIR low-pass time constant for sustained forces |
 | max tension | 60 | 20–127 | Hard cap on servo angle sent over serial |
-| Test untensioned positions | off | — | Hold servos at calibration offsets for setup |
-| test max tension | off | — | Hold servos at max tension for setup |
+
+#### Setup toggles
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| Test untensioned positions | off | Hold servos at calibration offsets for setup |
+| test max tension | off | Hold servos at max tension for setup |
+
+#### Feature toggles
+
+| Setting | Default | Effect |
+|---------|---------|--------|
+| Handbrake slackens belts | ON | Slackens both belts when handbrake is pulled |
+| Gear-shift kick | ON | Sharp tug on both belts when gear changes |
+| Brake-pedal decelerator | off | Uses raw brake pedal (0–1) as deceleration source instead of gLong only |
+| Wheel-slip feedback | off | Adds tension when wheels lock up or spin (max slip across all 4 wheels) |
+| Suspension bump kick | ON | Adds tug on suspension landing impact (bumps, jumps, kerbs) |
+| Pit-limiter slackens belts | ON | Slackens both belts when pit-limiter / speed-limiter is active |
+| Pitch/Roll weight transfer | off | Adds body-orientation-based tension (pitch = braking, roll = cornering) |
+
+#### Feature gains
+
+| Setting | Default | Range | Effect |
+|---------|---------|-------|--------|
+| gear-shift kick gain | 30 | 0–100 | Scales the gear-change kick relative to max tension |
+| brake-pedal gain | 40 | 0–100 | Scales brake-pedal decelerator output |
+| wheel-slip gain | 20 | 0–100 | Scales wheel-slip feedback |
+| bump kick gain | 25 | 0–100 | Scales suspension bump kick |
+| pitch weight transfer gain | 10 | 0–50 | Scales pitch-based weight transfer |
+| roll weight transfer gain | 10 | 0–50 | Scales roll-based weight transfer |
+
+### Supported SimHub properties
+
+The telemetry script uses these normalized SimHub properties (available across all
+supported games, including Gran Turismo 7 via UDP 33739/33740):
+
+- `DataCorePlugin.GameRunning`, `SpeedMph` / `SpeedKmh` — noise gate
+- `GlobalAccelerationG`, `AccelerationSway` — sustained G-forces
+- `Gear` — gear-shift kick detection
+- `Brake` — brake-pedal decelerator
+- `Handbrake` — handbrake belt slack
+- `SpeedLimiterActive` — pit-limiter belt slack
+- `Pitch`, `Roll` — body-orientation weight transfer
+- `SuspensionLandingImpactVelocityMs` — bump detection
+- `FrontLeftWheelSlip`, `FrontRightWheelSlip`, `RearLeftWheelSlip`, `RearRightWheelSlip` — wheel lockup/spin
 
 ## Changes from the original blekenbleu project
 
@@ -111,7 +159,12 @@ when `position + offset` exceeds 180.
 - **Reset function**: belts stay slack when no game is running (checked via
   `DataCorePlugin.GameRunning`). The original Dirt Rally 2.0 profile left
   residual tension in the belts between sessions.
-- High-pass transient channel for gear shifts / clutch bite ("kick").
+- Gear-shift kick detected via `Gear` property (direct) instead of gLong derivative.
+- Suspension bump kick via `SuspensionLandingImpactVelocityMs`.
+- Wheel-slip feedback via per-wheel `WheelSlip` properties.
+- Handbrake and pit-limiter automatically slacken belts.
+- Optional brake-pedal decelerator and pitch/roll weight transfer.
+- All 7 extra features are toggleable via SimHub checkboxes with adjustable gains.
 - Delta-guard: no serial output when values are unchanged, eliminating spam.
 - Servo angle clamped to 0–180° in firmware (prevents PWM-mode overflow).
 - `tmax` has a safe fallback so the protocol can never emit opcode bytes.
